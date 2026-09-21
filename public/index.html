@@ -1,0 +1,119 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1" />
+    <title>Jev · 2048</title>
+    <link rel="icon" type="image/svg+xml" href="/logo.svg" />
+    <link rel="stylesheet" href="/styles.css" />
+  </head>
+  <body>
+    <div class="app">
+      <header class="topbar">
+        <div class="brand">
+          <img class="brand-logo" src="/logo.svg" alt="Jev 2048" width="48" height="48" />
+          <span class="brand-sub">Jev 2048</span>
+        </div>
+
+        <div class="top-center">
+          <div class="mode-switch">
+            <div class="segmented" id="mode-switch">
+              <button class="seg-btn" data-mode="sync" type="button">同步</button>
+              <button class="seg-btn" data-mode="race" type="button">竞速</button>
+            </div>
+          </div>
+          <p class="mode-hint" id="mode-hint"></p>
+        </div>
+
+        <div class="top-actions">
+          <span id="jev-status" class="status status-wait">检测中…</span>
+          <button id="primary-action" class="btn primary" type="button">Jev 走一步</button>
+          <button id="reset-all" class="btn" type="button">全部重开</button>
+        </div>
+      </header>
+
+      <div class="arena" id="arena"></div>
+    </div>
+
+    <template id="side-template">
+      <section class="side">
+        <!-- Outer-left panel: Jev config (shown when this side is played by Jev) -->
+        <aside class="side-panel side-config" hidden>
+          <p class="panel-title">Jev 配置</p>
+          <label class="field">
+            <span>模型</span>
+            <select class="model-select"></select>
+          </label>
+          <label class="field">
+            <span>决策权重：Jev <b class="weight-value">60%</b> · 评分 <b class="weight-rest">40%</b></span>
+            <input class="weight" type="range" min="0" max="100" step="5" value="60" />
+          </label>
+          <label class="field">
+            <span>出手间隔（竞速）：<b class="delay-value">800 ms</b></span>
+            <input class="delay" type="range" min="0" max="3000" step="100" value="800" />
+          </label>
+        </aside>
+
+        <!-- The game screen -->
+        <div class="side-main">
+          <div class="side-head">
+            <div class="side-title">
+              <h2 class="side-name"></h2>
+              <span class="lead-badge">领先</span>
+              <span class="side-status status status-wait">—</span>
+            </div>
+            <span class="best-bubble">最高 <b class="best">0</b></span>
+            <div class="side-controls">
+              <button class="new-game btn" type="button">重开</button>
+              <div class="segmented" role="group" aria-label="控制方式">
+                <button class="seg-btn" data-controller="human" type="button">玩家</button>
+                <button class="seg-btn" data-controller="jev" type="button">Jev</button>
+              </div>
+            </div>
+          </div>
+
+          <div class="side-scores">
+            <div class="score-box"><span>得分</span><strong class="score">0</strong></div>
+            <div class="score-box"><span>步数</span><strong class="steps">0</strong></div>
+          </div>
+
+          <div class="board-wrap">
+            <div class="board" aria-label="2048 棋盘"></div>
+            <div class="overlay hidden">
+              <h2 class="overlay-title"></h2>
+              <p class="overlay-text"></p>
+              <button class="overlay-btn btn primary" type="button">重开</button>
+            </div>
+          </div>
+
+          <div class="side-toolbar">
+            <button class="jev-step btn primary" type="button">Jev 走一步</button>
+            <div class="dpad">
+              <button class="btn dpad-btn" data-move="up" type="button" aria-label="上">↑</button>
+              <div class="dpad-row">
+                <button class="btn dpad-btn" data-move="left" type="button" aria-label="左">←</button>
+                <button class="btn dpad-btn" data-move="down" type="button" aria-label="下">↓</button>
+                <button class="btn dpad-btn" data-move="right" type="button" aria-label="右">→</button>
+              </div>
+            </div>
+          </div>
+
+          <div class="log"></div>
+        </div>
+
+        <!-- Outer-right panel: controls help (shown when this side is played by a human) -->
+        <aside class="side-panel side-help" hidden>
+          <p class="panel-title">手动操作</p>
+          <p class="help-line">
+            <kbd>↑</kbd><kbd>↓</kbd><kbd>←</kbd><kbd>→</kbd> 或<br />
+          </p>
+          <p class="help-line">
+            <kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd>
+          </p>
+        </aside>
+      </section>
+    </template>
+
+    <script type="module" src="/app.js"></script>
+  </body>
+</html>

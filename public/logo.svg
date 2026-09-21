@@ -1,0 +1,41 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" width="64" height="64" role="img" aria-label="Jev 2048">
+  <title>Jev 2048</title>
+  <defs>
+    <linearGradient id="jStroke" x1="20" y1="10" x2="50" y2="52" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#8aa2ff" />
+      <stop offset="0.5" stop-color="#6c8cff" />
+      <stop offset="1" stop-color="#22d3a6" />
+    </linearGradient>
+    <linearGradient id="digitFill" x1="0" y1="12" x2="0" y2="41" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#ffffff" />
+      <stop offset="1" stop-color="#b9c9ff" />
+    </linearGradient>
+  </defs>
+
+  <!-- app tile background so the mark reads on light or dark surfaces -->
+  <rect x="1" y="1" width="62" height="62" rx="15" fill="#121829" stroke="#ffffff" stroke-opacity="0.08" />
+
+  <!-- a capital J that wraps around the digits: tall right stem, hook under, short left arm -->
+  <path
+    d="M35.5 10.5 L47 10.5 L47 35 A15 15 0 0 1 17 35 L17 31"
+    fill="none"
+    stroke="url(#jStroke)"
+    stroke-width="5.5"
+    stroke-linecap="round"
+    stroke-linejoin="round"
+  />
+
+  <!-- 2048 as a 2x2 grid inside the J -->
+  <g
+    fill="url(#digitFill)"
+    font-family="ui-sans-serif, system-ui, -apple-system, 'Segoe UI', 'PingFang SC', sans-serif"
+    font-size="13"
+    font-weight="800"
+    text-anchor="middle"
+  >
+    <text x="26" y="27">2</text>
+    <text x="37.5" y="27">0</text>
+    <text x="26" y="39.5">4</text>
+    <text x="37.5" y="39.5">8</text>
+  </g>
+</svg>

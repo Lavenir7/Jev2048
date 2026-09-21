@@ -1,0 +1,22 @@
+{
+  "name": "jev2048",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "A web 2048 you can play by hand or let Jev (TypeSafe System One) play, one step at a time or in auto mode.",
+  "scripts": {
+    "start": "node server/index.js",
+    "dev": "node --watch server/index.js",
+    "test": "node test/engine.test.js && node test/ui.test.js"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "dependencies": {
+    "@typesafe-ai/sdk": "^0.6.0",
+    "express": "^4.21.2"
+  },
+  "devDependencies": {
+    "jsdom": "^30.1.0"
+  }
+}
