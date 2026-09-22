@@ -33,12 +33,13 @@ npm start -- --port=8080                    # = 号写法同样支持，脚本�
 
 ### 环境变量
 
-| 变量 | 说明 | 默认 |
-| --- | --- | --- |
-| `TYPESAFE_API_KEY` | TypeSafe API Key，Jev 必需 | —— |
-| `TYPESAFE_MODEL` | 默认模型，两侧可各自覆盖 | `jev-latest` |
-| `HOST` | 监听地址（`0.0.0.0` 对外，`127.0.0.1` 仅本机） | `0.0.0.0` |
-| `PORT` | 服务端口 | `3000` |
+| 变量                      | 说明                                                    | 默认         |
+| ---                       | ---                                                     | ---          |
+| `TYPESAFE_API_KEY`        | TypeSafe API Key，Jev 必需                              | ——           |
+| `TYPESAFE_MODEL`          | 默认模型，两侧可各自覆盖                                | `jev-latest` |
+| `TYPESAFE_PRICE_PER_MTOK` | 输入 token 单价（美元 / 1M token）；输出 token 不计费   | `0.042`      |
+| `HOST`                    | 监听地址（`0.0.0.0` 对外，`127.0.0.1` 仅本机）          | `0.0.0.0`    |
+| `PORT`                    | 服务端口                                                | `3000`       |
 
 优先级：**命令行参数 > 环境变量（含 `.env`）> 默认值**。
 
@@ -46,6 +47,6 @@ npm start -- --port=8080                    # = 号写法同样支持，脚本�
 
 | 接口 | 说明 |
 | --- | --- |
-| `GET /api/status` | `{ jev, model }`：是否配置了 Key、默认模型 |
+| `GET /api/status` | `{ jev, model, pricePerMtok }`：是否配置了 Key、默认模型、输入 token 单价 |
 | `GET /api/models` | `{ models, source }`：可用模型列表（取不到时回退内置列表） |
-| `POST /api/jev-move` | body `{ board, weight, model }`，返回 `move` 及 `choice` / `quality` / `composite` / `usage` / `latency_ms` 等判断明细 |
+| `POST /api/jev-move` | body `{ board, weight, model }`，返回 `move` 及 `choice` / `quality` / `composite` / `usage` / `cost_usd` / `latency_ms` 等判断明细 |

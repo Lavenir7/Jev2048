@@ -19,6 +19,9 @@ export const DEFAULT_MODEL = "jev-latest";
 export const DEFAULT_CHOICE_WEIGHT = 0.6;
 export const QUALITY_MAX = 4;
 
+/** Fallback USD price per 1M *input* tokens. Override with TYPESAFE_PRICE_PER_MTOK. */
+export const DEFAULT_PRICE_PER_MTOK = 0.042;
+
 const QUALITY_LEVELS = [
   "Very bad: the move wrecks the position. It fills the board up, pushes the largest tile out of a corner, or scatters the ordering for no gain.",
   "Poor: playable but clearly worse than the alternatives. It gives up empty space, corner control, or ordering without a worthwhile merge.",
@@ -33,6 +36,23 @@ export function currentModel() {
 
 export function jevConfigured() {
   return Boolean(process.env.TYPESAFE_API_KEY && process.env.TYPESAFE_API_KEY.trim());
+}
+
+/**
+ * USD per 1M input tokens, from `TYPESAFE_PRICE_PER_MTOK`.
+ * Output tokens are not billed in this estimate.
+ */
+export function pricePerMtok() {
+  const raw = String(process.env.TYPESAFE_PRICE_PER_MTOK ?? "").trim();
+  if (raw === "") return DEFAULT_PRICE_PER_MTOK;
+  const value = Number(raw);
+  return Number.isFinite(value) && value >= 0 ? value : DEFAULT_PRICE_PER_MTOK;
+}
+
+/** Cost of one request in USD. Only the input tokens are charged. */
+export function estimateCost(usage) {
+  const inputTokens = Number(usage?.input_tokens) || 0;
+  return (inputTokens / 1e6) * pricePerMtok();
 }
 
 /** Used when the live model list is unavailable. */
@@ -115,6 +135,8 @@ export async function chooseMove(board, options = {}) {
         },
       ],
       usage: null,
+      cost_usd: 0,
+      price_per_mtok: pricePerMtok(),
     };
   }
 
@@ -233,5 +255,7 @@ export async function chooseMove(board, options = {}) {
       features: candidate.features,
     })),
     usage: response.usage || null,
+    cost_usd: estimateCost(response.usage),
+    price_per_mtok: pricePerMtok(),
   };
 }

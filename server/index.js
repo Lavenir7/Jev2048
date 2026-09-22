@@ -32,9 +32,8 @@ function loadEnvFile() {
 loadEnvFile();
 
 // Imported after the env file is loaded so the client picks up the key.
-const { chooseMove, currentModel, jevConfigured, listModels, FALLBACK_MODELS } = await import(
-  "./jev.js",
-);
+const { chooseMove, currentModel, jevConfigured, listModels, pricePerMtok, FALLBACK_MODELS } =
+  await import("./jev.js");
 
 const MODEL_RE = /^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/;
 
@@ -45,6 +44,7 @@ app.get("/api/status", (_req, res) => {
   res.json({
     jev: jevConfigured(),
     model: currentModel(),
+    pricePerMtok: pricePerMtok(),
     defaultChoiceWeight: 0.6,
   });
 });

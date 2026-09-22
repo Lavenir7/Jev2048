@@ -26,9 +26,22 @@
         </div>
 
         <div class="top-actions">
+          <span id="jev-cost" class="bubble cost-bubble" title="本次会话的 Jev 花费（只计输入 token）">COST $0.0000</span>
           <span id="jev-status" class="status status-wait">检测中…</span>
-          <button id="primary-action" class="btn primary" type="button">Jev 走一步</button>
-          <button id="reset-all" class="btn" type="button">全部重开</button>
+          <button id="primary-action" class="btn icon-btn" type="button" title="Jev 走一步" aria-label="Jev 走一步">
+            <svg class="solid icon-play" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+              <path d="M5.5 2.6 21.5 12 5.5 21.4Z" />
+            </svg>
+            <svg class="solid icon-stop" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+              <rect x="4" y="4" width="16" height="16" rx="3.5" />
+            </svg>
+          </button>
+          <button id="reset-all" class="btn icon-btn" type="button" title="全部重开" aria-label="全部重开">
+            <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+              <polyline points="23 4 23 10 17 10" />
+              <path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10" />
+            </svg>
+          </button>
         </div>
       </header>
 
@@ -45,12 +58,16 @@
             <select class="model-select"></select>
           </label>
           <label class="field">
-            <span>决策权重：Jev <b class="weight-value">60%</b> · 评分 <b class="weight-rest">40%</b></span>
+            <span>决策权重：直觉 <b class="weight-value">60%</b> · 评估 <b class="weight-rest">40%</b></span>
             <input class="weight" type="range" min="0" max="100" step="5" value="60" />
           </label>
-          <label class="field">
-            <span>出手间隔（竞速）：<b class="delay-value">800 ms</b></span>
+          <label class="field race-only">
+            <span>出手间隔：<b class="delay-value">800 ms</b></span>
             <input class="delay" type="range" min="0" max="3000" step="100" value="800" />
+          </label>
+          <label class="field race-only">
+            <span>步数上限 (0 → ∞)</span>
+            <input class="limit" type="number" min="0" max="9999" step="1" value="200" />
           </label>
         </aside>
 
@@ -58,13 +75,23 @@
         <div class="side-main">
           <div class="side-head">
             <div class="side-title">
-              <h2 class="side-name"></h2>
               <span class="lead-badge">领先</span>
               <span class="side-status status status-wait">—</span>
             </div>
             <span class="best-bubble">最高 <b class="best">0</b></span>
+            <span class="cost-pill"><b class="side-cost">$&lt;0.0001</b></span>
             <div class="side-controls">
-              <button class="new-game btn" type="button">重开</button>
+              <button class="jev-step btn icon-btn" type="button" title="Jev 走一步" aria-label="Jev 走一步">
+                <svg class="solid" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+                  <path d="M5.5 2.6 21.5 12 5.5 21.4Z" />
+                </svg>
+              </button>
+              <button class="new-game btn icon-btn" type="button" title="重开" aria-label="重开">
+                <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+                  <polyline points="23 4 23 10 17 10" />
+                  <path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10" />
+                </svg>
+              </button>
               <div class="segmented" role="group" aria-label="控制方式">
                 <button class="seg-btn" data-controller="human" type="button">玩家</button>
                 <button class="seg-btn" data-controller="jev" type="button">Jev</button>
@@ -86,30 +113,39 @@
             </div>
           </div>
 
-          <div class="side-toolbar">
-            <button class="jev-step btn primary" type="button">Jev 走一步</button>
-            <div class="dpad">
-              <button class="btn dpad-btn" data-move="up" type="button" aria-label="上">↑</button>
-              <div class="dpad-row">
-                <button class="btn dpad-btn" data-move="left" type="button" aria-label="左">←</button>
-                <button class="btn dpad-btn" data-move="down" type="button" aria-label="下">↓</button>
-                <button class="btn dpad-btn" data-move="right" type="button" aria-label="右">→</button>
-              </div>
+          <div class="dpad">
+            <button class="btn dpad-btn" data-move="up" type="button" aria-label="上">↑</button>
+            <div class="dpad-row">
+              <button class="btn dpad-btn" data-move="left" type="button" aria-label="左">←</button>
+              <button class="btn dpad-btn" data-move="down" type="button" aria-label="下">↓</button>
+              <button class="btn dpad-btn" data-move="right" type="button" aria-label="右">→</button>
             </div>
           </div>
 
           <div class="log"></div>
         </div>
 
-        <!-- Outer-right panel: controls help (shown when this side is played by a human) -->
+        <!-- Outer-right panel: manual input methods (shown when a human plays this side) -->
         <aside class="side-panel side-help" hidden>
-          <p class="panel-title">手动操作</p>
-          <p class="help-line">
-            <kbd>↑</kbd><kbd>↓</kbd><kbd>←</kbd><kbd>→</kbd> 或<br />
-          </p>
-          <p class="help-line">
-            <kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd>
-          </p>
+          <p class="panel-title">控制方式</p>
+          <div class="input-list">
+            <label class="input-item">
+              <input type="checkbox" data-input="arrows" />
+              <span class="input-name"><kbd>↑</kbd><kbd>↓</kbd><kbd>←</kbd><kbd>→</kbd></span>
+            </label>
+            <label class="input-item">
+              <input type="checkbox" data-input="wasd" />
+              <span class="input-name"><kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd></span>
+            </label>
+            <label class="input-item">
+              <input type="checkbox" data-input="swipe" />
+              <span class="input-name">滑动（触摸）</span>
+            </label>
+            <label class="input-item">
+              <input type="checkbox" data-input="buttons" />
+              <span class="input-name">界面按键</span>
+            </label>
+          </div>
         </aside>
       </section>
     </template>

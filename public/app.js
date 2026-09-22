@@ -6,33 +6,49 @@ const SPAWN_MS = 90;
 const SYNC_GAP_MS = 140;
 const MAX_LOG_ENTRIES = 4;
 
-const KEY_MAP = {
-  ArrowUp: "up",
-  ArrowDown: "down",
-  ArrowLeft: "left",
-  ArrowRight: "right",
-  w: "up",
-  s: "down",
-  a: "left",
-  d: "right",
-  W: "up",
-  S: "down",
-  A: "left",
-  D: "right",
+// Manual input methods a side can enable. Keyboard sets are deliberately not
+// tied to a "focused" board: every human side that enabled the set receives the
+// keypress, so two players can share one keyboard (left WASD vs right arrows).
+const KEY_SCHEMES = {
+  arrows: {
+    ArrowUp: "up",
+    ArrowDown: "down",
+    ArrowLeft: "left",
+    ArrowRight: "right",
+  },
+  wasd: {
+    w: "up",
+    s: "down",
+    a: "left",
+    d: "right",
+    W: "up",
+    S: "down",
+    A: "left",
+    D: "right",
+  },
 };
+
+const DEFAULT_INPUTS = { left: ["wasd"], right: ["arrows"] };
 
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 const pct = (value) => `${Math.round((value || 0) * 100)}%`;
 const moveLabel = (move) => `${ARROWS[move]} ${move}`;
+// 4 decimals. A real zero shows $0.0000; a tiny non-zero amount that would round
+// to zero shows $<0.0001, so a spend never looks free.
+const formatUsd = (value) => {
+  const amount = Number(value) || 0;
+  if (amount === 0) return "$0.0000";
+  const rounded = amount.toFixed(4);
+  return rounded === "0.0000" ? "$<0.0001" : `$${rounded}`;
+};
 
 /* ================================================================== */
 /* Board: one 2048 game, controlled by a human or by Jev              */
 /* ================================================================== */
 
 class Board {
-  constructor(side, label, root) {
+  constructor(side, root) {
     this.side = side;
-    this.label = label;
     this.root = root;
 
     const q = (selector) => root.querySelector(selector);
@@ -42,7 +58,6 @@ class Board {
       overlayTitle: q(".overlay-title"),
       overlayText: q(".overlay-text"),
       overlayBtn: q(".overlay-btn"),
-      name: q(".side-name"),
       status: q(".side-status"),
       score: q(".score"),
       best: q(".best"),
@@ -55,18 +70,25 @@ class Board {
       weightRest: q(".weight-rest"),
       delay: q(".delay"),
       delayValue: q(".delay-value"),
+      limit: q(".limit"),
+      raceFields: [...root.querySelectorAll(".race-only")],
       stepBtn: q(".jev-step"),
       newBtn: q(".new-game"),
       dpad: q(".dpad"),
       log: q(".log"),
+      cost: q(".side-cost"),
       controllerBtns: [...root.querySelectorAll(".seg-btn[data-controller]")],
+      inputBoxes: [...root.querySelectorAll("[data-input]")],
     };
     this.dpadButtons = [...root.querySelectorAll(".dpad-btn")];
-    this.els.name.textContent = label;
 
     this.controller = "human";
-    this.config = { model: "", weight: 0.6, delay: 800 };
+    this.mode = "sync";
+    this.config = { model: "", weight: 0.6, delay: 800, limit: 200 };
+    this.inputs = new Set(DEFAULT_INPUTS[side] || []);
     this.best = Number(localStorage.getItem(`jev2048.best.${side}`) || 0);
+    this.cost = 0;
+    this.generation = 0;
 
     this.state = Board.freshState();
     this.tileEls = new Map();
@@ -87,6 +109,7 @@ class Board {
     this.buildGrid();
     this.wireEvents();
     this.applyController();
+    this.applyMode();
     this.syncConfigLabels();
     this.updateHud();
   }
@@ -121,6 +144,10 @@ class Board {
     }
     this.els.newBtn.addEventListener("click", () => this.newGame());
     this.els.stepBtn.addEventListener("click", () => this.requestSyncMove());
+    for (const box of this.els.inputBoxes) {
+      box.checked = this.inputs.has(box.dataset.input);
+      box.addEventListener("change", () => this.setInput(box.dataset.input, box.checked));
+    }
     for (const button of this.dpadButtons) {
       button.addEventListener("click", () => this.handleManualMove(button.dataset.move));
     }
@@ -139,10 +166,20 @@ class Board {
       this.config.delay = Number(this.els.delay.value);
       this.syncConfigLabels();
     });
+    this.els.limit.addEventListener("input", () => {
+      this.config.limit = Board.parseLimit(this.els.limit.value);
+      this.updateSideStatus();
+      this.updateButtons();
+      this.onChange?.();
+    });
+    this.els.limit.addEventListener("change", () => {
+      this.els.limit.value = String(this.config.limit);
+    });
 
     this.els.board.addEventListener(
       "touchstart",
       (event) => {
+        if (!this.inputs.has("swipe")) return;
         const touch = event.changedTouches[0];
         if (!touch) return;
         this.touchX = touch.clientX;
@@ -153,6 +190,7 @@ class Board {
     this.els.board.addEventListener(
       "touchend",
       (event) => {
+        if (!this.inputs.has("swipe")) return;
         const touch = event.changedTouches[0];
         if (!touch) return;
         const dx = touch.clientX - (this.touchX || 0);
@@ -186,6 +224,13 @@ class Board {
     input.style.setProperty("--fill", `${Math.round(ratio * 1000) / 10}%`);
   }
 
+  /** Race budget for one side; 0 (or anything unparseable) means "no cap". */
+  static parseLimit(raw) {
+    const value = Math.floor(Number(raw));
+    if (!Number.isFinite(value) || value <= 0) return 0;
+    return Math.min(value, 9999);
+  }
+
   /* ---------------- controller / config ---------------- */
 
   setController(kind) {
@@ -207,7 +252,51 @@ class Board {
     this.els.config.hidden = !isJev;
     this.els.help.hidden = isJev;
     this.els.stepBtn.hidden = !isJev;
-    this.els.dpad.hidden = isJev;
+    this.updateDpad();
+  }
+
+  /* ---------------- mode ---------------- */
+
+  /** 出手间隔 / 步数上限 only affect auto-play, so they are hidden unless racing. */
+  applyMode() {
+    const racing = this.mode === "race";
+    for (const field of this.els.raceFields) field.hidden = !racing;
+  }
+
+  setMode(mode) {
+    this.mode = mode;
+    this.applyMode();
+    // The cap message is race-only too, so refresh the status with the mode.
+    this.updateSideStatus();
+  }
+
+  /* ---------------- manual input methods ---------------- */
+
+  /** Adds or removes one way of steering this side by hand. */
+  setInput(name, enabled) {
+    if (enabled) this.inputs.add(name);
+    else this.inputs.delete(name);
+    this.applyInputs();
+  }
+
+  applyInputs() {
+    for (const box of this.els.inputBoxes) box.checked = this.inputs.has(box.dataset.input);
+    this.updateDpad();
+  }
+
+  /** The on-screen d-pad is just one more input method, so it can be switched off. */
+  updateDpad() {
+    this.els.dpad.hidden = this.controller !== "human" || !this.inputs.has("buttons");
+  }
+
+  /** The move this keypress means here, or null when this side ignores that key. */
+  moveForKey(key) {
+    if (this.controller !== "human") return null;
+    for (const scheme of this.inputs) {
+      const keys = KEY_SCHEMES[scheme];
+      if (keys && Object.hasOwn(keys, key)) return keys[key];
+    }
+    return null;
   }
 
   setJevReady(ready) {
@@ -318,17 +407,22 @@ class Board {
   }
 
   updateSideStatus() {
-    if (this.controller === "human") return this.setSideStatus("wait", "手动");
-    if (!this.jevReady) return this.setSideStatus("warn", "无 Key");
-    if (this.state.thinking) return this.setSideStatus("wait", "思考中…");
-    if (this.state.over) return this.setSideStatus("bad", "已结束");
-    if (this.auto) return this.setSideStatus("ok", "自动中");
-    return this.setSideStatus("ok", "就绪");
+    if (this.controller === "human") return this.setSideStatus("manual", "人类玩家");
+    if (!this.jevReady) return this.setSideStatus("bad", "无 APIKey");
+    if (this.state.thinking) return this.setSideStatus("wait", "思考中...");
+    if (this.state.over) return this.setSideStatus("over", "游戏结束");
+    if (this.atStepLimit() && this.mode === "race") {
+      return this.setSideStatus("warn", `步数上限 ${this.config.limit}`);
+    }
+    if (this.auto) return this.setSideStatus("ok", "思考中...");
+    return this.setSideStatus("ready", "Jev 就绪");
   }
 
+  /** The lamp says it with colour; the word stays in the DOM for screen readers. */
   setSideStatus(kind, text) {
     this.els.status.className = `side-status status status-${kind}`;
     this.els.status.textContent = text;
+    this.els.status.title = text;
   }
 
   updateButtons() {
@@ -361,6 +455,9 @@ class Board {
   newGame() {
     this.stopAuto();
     this.pendingSync = 0;
+    this.cost = 0;
+    this.generation += 1;
+    this.stepping = false;
     for (const node of this.tileEls.values()) node.remove();
     this.tileEls.clear();
 
@@ -375,6 +472,7 @@ class Board {
     );
     this.updateSideStatus();
     this.updateButtons();
+    this.renderCost();
     this.onChange?.();
   }
 
@@ -476,6 +574,10 @@ class Board {
       return false;
     }
 
+    // Anything that lands after a restart belongs to the previous game: drop it
+    // so a late reply can neither move the new board nor add to its cost.
+    const generation = this.generation;
+
     this.stepping = true;
     this.state.thinking = true;
     this.updateSideStatus();
@@ -484,20 +586,24 @@ class Board {
     try {
       const board = tilesToBoard(this.state.tiles);
       const decision = await this.fetchJevMove(board);
+      if (generation !== this.generation) return false;
       const legal = legalMoves(board);
       const move = legal.includes(decision.move) ? decision.move : legal[0];
       this.renderDecision(decision, move);
       return await this.performMove(move, "jev");
     } catch (error) {
       if (error?.name === "AbortError") return false;
+      if (generation !== this.generation) return false;
       this.renderError(error?.message || String(error));
       this.setSideStatus("bad", "出错");
       return false;
     } finally {
-      this.stepping = false;
-      this.state.thinking = false;
-      this.updateSideStatus();
-      this.updateButtons();
+      if (generation === this.generation) {
+        this.stepping = false;
+        this.state.thinking = false;
+        this.updateSideStatus();
+        this.updateButtons();
+      }
     }
   }
 
@@ -525,8 +631,18 @@ class Board {
     }
   }
 
+  /** True once auto-play has used up this side's race budget. */
+  atStepLimit() {
+    return this.config.limit > 0 && this.state.steps >= this.config.limit;
+  }
+
+  /** Auto-play needs a live board that still has budget left. */
+  canAutoPlay() {
+    return !this.state.over && !this.atStepLimit();
+  }
+
   async startAuto() {
-    if (this.auto || this.state.over || this.controller !== "jev" || !this.jevReady) return;
+    if (this.auto || !this.canAutoPlay() || this.controller !== "jev" || !this.jevReady) return;
     this.auto = true;
     const token = this.autoToken + 1;
     this.autoToken = token;
@@ -534,7 +650,7 @@ class Board {
     this.updateButtons();
     this.onChange?.();
 
-    while (this.auto && token === this.autoToken && !this.state.over) {
+    while (this.auto && token === this.autoToken && this.canAutoPlay()) {
       const ok = await this.jevStep();
       if (!ok) break;
       if (!this.auto || token !== this.autoToken) break;
@@ -581,6 +697,10 @@ class Board {
     while (this.els.log.children.length > MAX_LOG_ENTRIES) {
       this.els.log.lastElementChild.remove();
     }
+  }
+
+  renderCost() {
+    this.els.cost.textContent = formatUsd(this.cost);
   }
 
   renderDecision(decision, playedMove) {
@@ -665,13 +785,21 @@ class Board {
       foot.appendChild(time);
     }
     if (decision.usage) {
+      const inputTokens = decision.usage.input_tokens || 0;
+      const outputTokens = decision.usage.output_tokens || 0;
       const tokens = document.createElement("span");
       tokens.className = "bubble";
-      tokens.textContent = `${(decision.usage.input_tokens || 0) + (decision.usage.output_tokens || 0)} tok`;
-      tokens.title = "token 消耗（输入 + 输出）";
+      tokens.textContent = `${inputTokens} tok · ${formatUsd(decision.cost_usd)}`;
+      tokens.title = `输入 ${inputTokens} tok（计费）· 输出 ${outputTokens} tok（免费）`;
       foot.appendChild(tokens);
     }
     if (foot.children.length > 0) entry.appendChild(foot);
+
+    if (decision.cost_usd > 0) {
+      this.cost += decision.cost_usd;
+      this.renderCost();
+      this.onCost?.(this.cost);
+    }
 
     this.pushLog(entry);
   }
@@ -697,7 +825,6 @@ class Match {
   constructor() {
     this.mode = "sync";
     this.boards = [];
-    this.focused = null;
     this.raceRunning = false;
     this.jevReady = false;
     this.defaultModel = "jev-latest";
@@ -709,24 +836,23 @@ class Match {
       primary: document.getElementById("primary-action"),
       resetAll: document.getElementById("reset-all"),
       status: document.getElementById("jev-status"),
+      cost: document.getElementById("jev-cost"),
     };
   }
 
   init() {
     const template = document.getElementById("side-template");
-    for (const def of [
-      { side: "left", label: "左侧" },
-      { side: "right", label: "右侧" },
-    ]) {
+    for (const side of ["left", "right"]) {
       const fragment = template.content.cloneNode(true);
       const root = fragment.querySelector(".side");
-      root.dataset.side = def.side;
+      root.dataset.side = side;
       this.els.arena.appendChild(fragment);
 
-      const board = new Board(def.side, def.label, root);
+      const board = new Board(side, root);
       board.onHumanMove = (source) => this.handleHumanMove(source);
       board.onControllerChange = (changed) => this.handleControllerChange(changed);
       board.onChange = () => this.onBoardChange();
+      board.onCost = () => this.renderCost();
       this.boards.push(board);
     }
 
@@ -734,12 +860,10 @@ class Match {
     this.boards[0].setController("human");
     this.boards[1].setController("jev");
 
-    this.focused = this.boards[0];
-    this.applyFocus();
-
     this.wire();
     this.setMode("sync");
     for (const board of this.boards) board.newGame();
+    this.renderCost();
     this.updateTopBar();
     this.fetchStatus();
   }
@@ -752,15 +876,6 @@ class Match {
     this.els.resetAll.addEventListener("click", () => this.resetAll());
 
     document.addEventListener("keydown", (event) => this.onKeyDown(event));
-    document.addEventListener("click", (event) => {
-      const side = event.target.closest?.(".side");
-      if (!side) return;
-      const board = this.boards.find((candidate) => candidate.root === side);
-      if (board) {
-        this.focused = board;
-        this.applyFocus();
-      }
-    });
   }
 
   /* ---------------- mode & top bar ---------------- */
@@ -771,6 +886,7 @@ class Match {
       this.stopRace();
       for (const board of this.boards) board.clearPendingSync();
     }
+    for (const board of this.boards) board.setMode(this.mode);
     for (const button of this.els.modeBtns) {
       button.classList.toggle("active", button.dataset.mode === this.mode);
     }
@@ -779,34 +895,47 @@ class Match {
     this.updateTopBar();
   }
 
+  /** The top-bar action is an icon, so its label lives in title / aria-label. */
+  setPrimary(label, { stop = false } = {}) {
+    this.els.primary.title = label;
+    this.els.primary.setAttribute("aria-label", label);
+    this.els.primary.classList.toggle("is-stop", stop);
+  }
+
   setStatus(kind, text) {
     this.els.status.className = `status status-${kind}`;
     this.els.status.textContent = text;
+    this.els.status.title = text;
+  }
+
+  /* ---------------- session spend ---------------- */
+
+  /** Top-bar total = the two sides' own totals, so a side reset lowers it. */
+  totalCost() {
+    return this.boards.reduce((sum, board) => sum + board.cost, 0);
+  }
+
+  renderCost() {
+    this.els.cost.textContent = `COST ${formatUsd(this.totalCost())}`;
   }
 
   updateTopBar() {
     const jevBoards = this.boards.filter((board) => board.controller === "jev");
     const anyJev = jevBoards.length > 0;
-    const allOver = anyJev && jevBoards.every((board) => board.state.over);
+    const allDone = anyJev && jevBoards.every((board) => !board.canAutoPlay());
     const busy = jevBoards.some(
       (board) => board.state.busy || board.state.thinking || board.stepping,
     );
 
     if (this.mode === "sync") {
-      this.els.primary.textContent = "Jev 走一步";
-      this.els.primary.classList.add("primary");
-      this.els.primary.classList.remove("danger");
-      this.els.primary.disabled = !anyJev || !this.jevReady || allOver || busy;
+      this.setPrimary("Jev 走一步");
+      this.els.primary.disabled = !anyJev || !this.jevReady || allDone || busy;
     } else if (this.raceRunning) {
-      this.els.primary.textContent = "停止竞速";
-      this.els.primary.classList.remove("primary");
-      this.els.primary.classList.add("danger");
+      this.setPrimary("停止竞速", { stop: true });
       this.els.primary.disabled = false;
     } else {
-      this.els.primary.textContent = "开始竞速";
-      this.els.primary.classList.add("primary");
-      this.els.primary.classList.remove("danger");
-      this.els.primary.disabled = !anyJev || !this.jevReady || allOver;
+      this.setPrimary("开始竞速");
+      this.els.primary.disabled = !anyJev || !this.jevReady || allDone;
     }
 
     for (const board of this.boards) board.root.classList.remove("leading");
@@ -824,11 +953,13 @@ class Match {
   onBoardChange() {
     if (this.raceRunning) {
       const jevBoards = this.boards.filter((board) => board.controller === "jev");
-      if (jevBoards.length > 0 && !jevBoards.some((board) => !board.state.over)) {
+      // Every Jev side is finished — either the board died or the race budget ran out.
+      if (jevBoards.length > 0 && !jevBoards.some((board) => board.canAutoPlay())) {
         this.raceRunning = false;
         for (const board of this.boards) board.stopAuto();
       }
     }
+    this.renderCost();
     this.updateTopBar();
   }
 
@@ -856,7 +987,7 @@ class Match {
   }
 
   handleControllerChange(board) {
-    if (board.controller === "jev" && this.raceRunning && !board.state.over) {
+    if (board.controller === "jev" && this.raceRunning && board.canAutoPlay()) {
       board.startAuto();
     }
     if (board.controller !== "jev") board.stopAuto();
@@ -865,7 +996,7 @@ class Match {
 
   startRace() {
     const jevBoards = this.boards.filter(
-      (board) => board.controller === "jev" && !board.state.over,
+      (board) => board.controller === "jev" && board.canAutoPlay(),
     );
     if (jevBoards.length === 0 || !this.jevReady) return;
     this.raceRunning = true;
@@ -886,30 +1017,31 @@ class Match {
     this.updateTopBar();
   }
 
-  /* ---------------- keyboard & focus ---------------- */
+  /* ---------------- keyboard ---------------- */
 
-  applyFocus() {
-    for (const board of this.boards) {
-      board.root.classList.toggle("focused", board === this.focused);
-    }
-  }
-
-  keyboardBoard() {
-    if (this.focused?.controller === "human") return this.focused;
-    return this.boards.find((board) => board.controller === "human") || null;
-  }
-
+  /**
+   * Keys are not routed to a "focused" board. Every human side that enabled the
+   * pressed key set gets the move, so both sides can advance from one keystroke
+   * when they share a set (player vs player), and each player keeps their own
+   * set otherwise (left WASD / right arrows).
+   */
   onKeyDown(event) {
-    if (event.target instanceof HTMLInputElement || event.target instanceof HTMLSelectElement) {
-      return;
-    }
+    // Don't fight the form controls: <select> and the sliders use the arrow keys
+    // themselves. A focused checkbox is fine to play through.
+    const target = event.target;
+    if (target instanceof HTMLSelectElement) return;
+    if (target instanceof HTMLInputElement && target.type !== "checkbox") return;
     if (event.metaKey || event.ctrlKey || event.altKey) return;
-    const move = KEY_MAP[event.key];
-    if (!move) return;
-    const board = this.keyboardBoard();
-    if (!board) return;
+
+    const targets = [];
+    for (const board of this.boards) {
+      const move = board.moveForKey(event.key);
+      if (move) targets.push({ board, move });
+    }
+    if (targets.length === 0) return;
+
     event.preventDefault();
-    board.handleManualMove(move);
+    for (const { board, move } of targets) board.handleManualMove(move);
   }
 
   /* ---------------- status ---------------- */
@@ -920,6 +1052,10 @@ class Match {
       const data = await res.json();
       this.jevReady = Boolean(data.jev);
       this.defaultModel = data.model || "jev-latest";
+      if (typeof data.pricePerMtok === "number") {
+        this.els.cost.title =
+          `本次会话 Jev 花费 · 单价 $${data.pricePerMtok}/1M 输入 token`;
+      }
 
       let models = [this.defaultModel];
       if (this.jevReady) {
